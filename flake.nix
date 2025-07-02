@@ -22,11 +22,14 @@
       packages = {
         default = self.packages.${system}.myapp;
       };
-
       # $ nix develop
       devShells.default = pkgs.mkShell {
+        LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [pkgs.openssl];
+
         packages = [
           pkgs.gnumake
+          pkgs.pkg-config
+          pkgs.openssl
 
           # Nix
           pkgs.nixpkgs-fmt
