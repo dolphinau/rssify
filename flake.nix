@@ -1,6 +1,5 @@
 {
   description = "lwn-sub-snoozer";
-
   inputs = {
     flake-utils.url = "github:numtide/flake-utils";
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.05";
@@ -25,15 +24,12 @@
       # $ nix develop
       devShells.default = pkgs.mkShell {
         LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [pkgs.openssl];
-
         packages = [
-          pkgs.gnumake
           pkgs.pkg-config
           pkgs.openssl
-
-          # Nix
           pkgs.nixpkgs-fmt
           pkgs.nil
+          pkgs.postgresql
 
           # Rust
           fenix.packages.${system}.default.toolchain
