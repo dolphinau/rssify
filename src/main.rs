@@ -1,11 +1,11 @@
-use std::error::Error;
-
 use chrono::{NaiveDate, NaiveDateTime, TimeZone, prelude::Local};
 use regex::Regex;
 use reqwest::get;
 use scraper::{Html, Selector};
+use std::error::Error;
 use std::fs::File;
 use std::io::BufReader;
+use std::io::Write;
 use tokio::{
     runtime::Runtime,
     sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel},
@@ -95,21 +95,54 @@ fn main() {
             }
 
             // TODO: How to manage the RSS xml file
+            let mut channel = match File::open("rss.xml") {
+                Ok(file) => rss::Channel::read_from(BufReader::new(file)).unwrap(),
+                _ => rss::ChannelBuilder::default()
+                    .title("[$] lwn.net")
+                    .link("https://dawl.fr/lwn.net/rss.xml")
+                    .description("RSS flux of lwn.net paid articles that are freely released.")
+                    .items(vec![])
+                    .build(),
+            };
+            let mut items = channel.clone().into_items();
 
-            // TODO: Check for new free articles
             if let Ok(saved_articles) = client.query("SELECT * FROM articles", &[]).await {
-                saved_articles.iter().for_each(|row| {
+                for row in saved_articles {
                     let date: &str = row.get("release_date");
-                    if let Ok(date) = NaiveDateTime::parse_from_str(date, "%Y-%m-%d") {
-                        println!("date: {}", date);
+                    if let Ok(date) = NaiveDateTime::parse_from_str(date, "%Y-%m-%d %H:%M:%S") {
                         if Local.from_local_datetime(&date).unwrap() < Local::now() {
-                            // TODO: item.publish
+                            let link: String = row.get("title");
+                            let guid = rss::GuidBuilder::default()
+                                .value(link.clone())
+                                .permalink(true)
+                                .build();
+
+                            items.push(
+                                rss::ItemBuilder::default()
+                                    .title(Some(row.get("title")))
+                                    .link(Some(link))
+                                    .guid(Some(guid))
+                                    .pub_date(Some(Local::now().to_rfc2822()))
+                                    .description(Some(row.get("description")))
+                                    .build(),
+                            );
                         }
                     }
-                });
+                }
+            };
+
+            channel.set_items(items);
+            if let Err(e) = save_xml(&channel.to_string()) {
+                eprintln!("failed to save xml: {}", e);
             }
         }
     });
+}
+
+fn save_xml(rss_string: &str) -> std::io::Result<()> {
+    let mut file = File::create("paid_lwn_net_rss.xml")?;
+    file.write_all(rss_string.as_bytes())?;
+    Ok(())
 }
 
 async fn fetch_release_date(url: &str) -> Result<Option<NaiveDateTime>, Box<dyn Error>> {
