@@ -1,9 +1,11 @@
 use std::error::Error;
 
-use chrono::NaiveDate;
+use chrono::{NaiveDate, NaiveDateTime, TimeZone, prelude::Local};
 use regex::Regex;
 use reqwest::get;
 use scraper::{Html, Selector};
+use std::fs::File;
+use std::io::BufReader;
 use tokio::{
     runtime::Runtime,
     sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel},
@@ -27,25 +29,62 @@ fn main() {
                 }
             });
 
+            if let Err(e) = client
+                .query(
+                    "CREATE TABLE IF NOT EXISTS articles (
+                        link TEXT,
+                        title TEXT,
+                        description TEXT,
+                        pub_date TEXT,
+                        release_date TEXT
+                    )",
+                    &[],
+                )
+                .await
+            {
+                eprintln!("table creation error: {}", e);
+            }
+
             // Get new [$] articles
             if let Ok(items) = fetch_paid_article_urls().await {
                 for item in items {
                     if let Some(link) = item.link() {
                         match client
-                            .query_opt("SELECT date FROM articles WHERE id = $1", &[&link])
+                            .query_opt(
+                                "SELECT release_date FROM articles WHERE link = $1",
+                                &[&link],
+                            )
                             .await
                         {
                             Ok(None) => {
                                 if let Ok(Some(date)) = fetch_release_date(&link).await {
-                                    println!("Adding new article to db: {}", link);
-                                    if let Err(e) = client
-                                        .query(
-                                            "INSERT INTO articles (id, date) VALUES ($1, $2)",
-                                            &[&link, &date.to_string()],
-                                        )
-                                        .await
+                                    if let (Some(title), Some(description), Some(pub_date)) =
+                                        (item.title(), item.description(), item.pub_date())
                                     {
-                                        eprintln!("Error insert: {}", e);
+                                        println!("Adding new article to db: {}", link);
+
+                                        if let Err(e) = client
+                                            .query(
+                                                "INSERT INTO articles (
+                                                link,
+                                                title,
+                                                description,
+                                                pub_date,
+                                                release_date
+                                            ) VALUES (
+                                                $1, $2, $3, $4, $5)",
+                                                &[
+                                                    &link,
+                                                    &title,
+                                                    &description,
+                                                    &pub_date,
+                                                    &date.to_string(),
+                                                ],
+                                            )
+                                            .await
+                                        {
+                                            eprintln!("Error insert: {}", e);
+                                        }
                                     }
                                 }
                             }
@@ -55,25 +94,25 @@ fn main() {
                 }
             }
 
+            // TODO: How to manage the RSS xml file
+
             // TODO: Check for new free articles
-            // client
-            //     .query("SELECT * FROM articles")
-            //     .await
-            //     .unwrap()
-            //     .iter()
-            //     .map(|row| {
-            //         let id = row.get("id");
-            //         let date = row.get("date");
-            //
-            //          if date < today {
-            //              article.publish
-            //          }
-            //     })
+            if let Ok(saved_articles) = client.query("SELECT * FROM articles", &[]).await {
+                saved_articles.iter().for_each(|row| {
+                    let date: &str = row.get("release_date");
+                    if let Ok(date) = NaiveDateTime::parse_from_str(date, "%Y-%m-%d") {
+                        println!("date: {}", date);
+                        if Local.from_local_datetime(&date).unwrap() < Local::now() {
+                            // TODO: item.publish
+                        }
+                    }
+                });
+            }
         }
     });
 }
 
-async fn fetch_release_date(url: &str) -> Result<Option<NaiveDate>, Box<dyn Error>> {
+async fn fetch_release_date(url: &str) -> Result<Option<NaiveDateTime>, Box<dyn Error>> {
     let response = get(url).await?.text().await?;
 
     if let Some(article_text) = Html::parse_document(&response)
@@ -86,7 +125,11 @@ async fn fetch_release_date(url: &str) -> Result<Option<NaiveDate>, Box<dyn Erro
             )?;
             if let Some(cap) = re.captures(&yes.inner_html()) {
                 if let Some(date) = cap.get(1) {
-                    return Ok(Some(NaiveDate::parse_from_str(date.as_str(), "%B %d, %Y")?));
+                    return Ok(Some(
+                        NaiveDate::parse_from_str(date.as_str(), "%B %d, %Y")?
+                            .and_hms_opt(0, 0, 0)
+                            .unwrap(),
+                    ));
                 }
             }
         }
