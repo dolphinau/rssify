@@ -1,31 +1,43 @@
 use chrono::{NaiveDate, NaiveDateTime, TimeZone, prelude::Local};
+use clap::Parser;
 use regex::Regex;
 use reqwest::get;
 use scraper::{Html, Selector};
+use std::env;
 use std::error::Error;
 use std::fs::File;
 use std::io::BufReader;
 use std::io::Write;
-use tokio::{
-    runtime::Runtime,
-    sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel},
-};
+use tokio::runtime::Runtime;
 use tokio_postgres;
+
+#[derive(Parser)]
+struct Cli {
+    path: std::path::PathBuf,
+}
 
 fn main() {
     let rt = Runtime::new().unwrap();
 
+    let args = Cli::parse();
+    let db_connection_string = &format!(
+        "host={} dbname={} user={} password={}",
+        env::var("POSTGRES_HOST").unwrap_or(String::from("localhost")),
+        env::var("POSTGRES_USER").unwrap_or(String::from("dev")),
+        env::var("POSTGRES_USER").unwrap_or(String::from("dev")),
+        env::var("POSTGRES_PASSWORD").unwrap_or(String::from("dev"))
+    );
+
+    println!("Connection string: {}", db_connection_string);
+
     rt.block_on(async {
         // Connect to the database.
-        if let Ok((client, connection)) = tokio_postgres::connect(
-            "host=localhost dbname=dev user=root password=root",
-            tokio_postgres::NoTls,
-        )
-        .await
+        if let Ok((client, connection)) =
+            tokio_postgres::connect(db_connection_string, tokio_postgres::NoTls).await
         {
             tokio::spawn(async move {
                 if let Err(e) = connection.await {
-                    eprintln!("connection error: {}", e);
+                    eprintln!("[x] Connection db error: {}", e);
                 }
             });
 
@@ -42,7 +54,7 @@ fn main() {
                 )
                 .await
             {
-                eprintln!("table creation error: {}", e);
+                eprintln!("[x] Table creation error: {}", e);
             }
 
             // Get new [$] articles
@@ -83,7 +95,7 @@ fn main() {
                                             )
                                             .await
                                         {
-                                            eprintln!("Error insert: {}", e);
+                                            eprintln!("[x] Error insert: {}", e);
                                         }
                                     }
                                 }
@@ -95,7 +107,7 @@ fn main() {
             }
 
             // TODO: How to manage the RSS xml file
-            let mut channel = match File::open("rss.xml") {
+            let mut channel = match File::open(&args.path) {
                 Ok(file) => rss::Channel::read_from(BufReader::new(file)).unwrap(),
                 _ => rss::ChannelBuilder::default()
                     .title("[$] lwn.net")
@@ -132,15 +144,17 @@ fn main() {
             };
 
             channel.set_items(items);
-            if let Err(e) = save_xml(&channel.to_string()) {
-                eprintln!("failed to save xml: {}", e);
+            if let Err(e) = save_xml(&channel.to_string(), args.path) {
+                eprintln!("[x] Failed to save xml: {}", e);
             }
+        } else {
+            eprintln!("[x] Failed to connect to the db");
         }
     });
 }
 
-fn save_xml(rss_string: &str) -> std::io::Result<()> {
-    let mut file = File::create("paid_lwn_net_rss.xml")?;
+fn save_xml(rss_string: &str, path: std::path::PathBuf) -> std::io::Result<()> {
+    let mut file = File::create(path)?;
     file.write_all(rss_string.as_bytes())?;
     Ok(())
 }
