@@ -13,20 +13,23 @@ fn main() {
     let rt = Runtime::new().unwrap();
 
     let args = Cli::parse();
-    let db_connection_string = &format!(
-        "host={} dbname={} user={} password={}",
-        env::var("POSTGRES_HOST").unwrap_or(String::from("localhost")),
-        env::var("POSTGRES_USER").unwrap_or(String::from("root")),
-        env::var("POSTGRES_USER").unwrap_or(String::from("root")),
-        env::var("POSTGRES_PASSWORD").unwrap_or(String::from("root"))
-    );
+    let db_connection_string = match env::var("DATABASE_CONNECTION") {
+        Ok(s) => s,
+        _ => format!(
+            "host={} dbname={} user={} password={}",
+            env::var("POSTGRES_HOST").unwrap_or(String::from("localhost")),
+            env::var("POSTGRES_USER").unwrap_or(String::from("root")),
+            env::var("POSTGRES_USER").unwrap_or(String::from("root")),
+            env::var("POSTGRES_PASSWORD").unwrap_or(String::from("root"))
+        ),
+    };
 
     println!("Connection string: {}", db_connection_string);
 
     rt.block_on(async {
         // Connect to the database.
         if let Ok((client, connection)) =
-            tokio_postgres::connect(db_connection_string, tokio_postgres::NoTls).await
+            tokio_postgres::connect(&db_connection_string, tokio_postgres::NoTls).await
         {
             println!("Working...");
 
