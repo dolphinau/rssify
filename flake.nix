@@ -3,17 +3,12 @@
   inputs = {
     flake-utils.url = "github:numtide/flake-utils";
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.05";
-    fenix = {
-      url = "github:nix-community/fenix/monthly";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
   };
 
   outputs = {
     self,
     nixpkgs,
     flake-utils,
-    fenix,
   }:
     flake-utils.lib.eachDefaultSystem (system: let
       pkgs = nixpkgs.legacyPackages.${system};
@@ -27,12 +22,19 @@
         packages = [
           pkgs.pkg-config
           pkgs.openssl
-          pkgs.nixpkgs-fmt
-          pkgs.nil
           pkgs.postgresql
 
+          # Nix
+          pkgs.nixpkgs-fmt
+          pkgs.nil
+          pkgs.nixd
+          pkgs.alejandra
+
           # Rust
-          fenix.packages.${system}.default.toolchain
+          pkgs.rustfmt
+          pkgs.rustc
+          pkgs.cargo
+          pkgs.rust-analyzer
         ];
       };
     });

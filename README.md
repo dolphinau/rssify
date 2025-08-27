@@ -1,3 +1,8 @@
+# rssify - Transform some website I like too RSS feeds
+
+- lwn paid articles
+- CISA KEV release
+
 ## Usage
 
 Use the `justfile` to run commands:
