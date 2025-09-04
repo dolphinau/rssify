@@ -125,7 +125,7 @@ impl Source for LWN {
                 let date: &str = row.get("release_date");
                 if let Ok(date) = NaiveDateTime::parse_from_str(date, "%Y-%m-%d %H:%M:%S") {
                     if Local.from_local_datetime(&date).unwrap() < Local::now() {
-                        let link: String = row.get("title");
+                        let link: String = row.get("link");
                         let guid = rss::GuidBuilder::default()
                             .value(link.clone())
                             .permalink(true)
